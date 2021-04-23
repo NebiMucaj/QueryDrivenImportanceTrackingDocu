@@ -1,0 +1,399 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>sample.tf_idf_tracking &mdash; Efficient TF-IDF Tracking 1.0.0 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+        <script src="../../_static/jquery.js"></script>
+        <script src="../../_static/underscore.js"></script>
+        <script src="../../_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../../index.html" class="icon icon-home"> Efficient TF-IDF Tracking
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Efficient TF-IDF Tracking</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../../index.html" class="icon icon-home"></a> &raquo;</li>
+        
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+        
+      <li>sample.tf_idf_tracking</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <h1>Source code for sample.tf_idf_tracking</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="kn">from</span> <span class="nn">math</span> <span class="kn">import</span> <span class="n">ceil</span>
+<span class="kn">from</span> <span class="nn">sample</span> <span class="kn">import</span> <span class="n">extract_data</span><span class="p">,</span> <span class="n">tf_idf</span><span class="p">,</span> <span class="n">space_saving</span>
+<span class="kn">from</span> <span class="nn">nltk.util</span> <span class="kn">import</span> <span class="n">ngrams</span>
+<span class="kn">from</span> <span class="nn">scipy.spatial</span> <span class="kn">import</span> <span class="n">distance</span>
+<span class="kn">from</span> <span class="nn">window_slider</span> <span class="kn">import</span> <span class="n">Slider</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">sklearn.feature_extraction.text</span> <span class="kn">import</span> <span class="n">TfidfVectorizer</span><span class="p">,</span> <span class="n">CountVectorizer</span>
+<span class="kn">from</span> <span class="nn">scipy.sparse</span> <span class="kn">import</span> <span class="n">hstack</span><span class="p">,</span> <span class="n">csr_matrix</span>
+<span class="kn">from</span> <span class="nn">sklearn.cluster</span> <span class="kn">import</span> <span class="n">KMeans</span>
+
+
+<div class="viewcode-block" id="TfIdfTracking"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking">[docs]</a><span class="k">class</span> <span class="nc">TfIdfTracking</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;This is a conceptual class representation of a TF-IDF tracking mechanism.</span>
+
+<span class="sd">    :param data: Stream of items to be tracked</span>
+<span class="sd">    :type data: array</span>
+<span class="sd">    :param seed: List of items labeld as important</span>
+<span class="sd">    :type seed: array</span>
+<span class="sd">    :param error: Error</span>
+<span class="sd">    :type error: int</span>
+<span class="sd">    :param distance_threshold: Maximum distance to the cntroid</span>
+<span class="sd">    :type distance_threshold: int</span>
+<span class="sd">    :param cluster_num: Number of clusters</span>
+<span class="sd">    :type cluster_num: int</span>
+<span class="sd">    :param keyword_number: Number of keywords which represent an text docuement</span>
+<span class="sd">    :type keyword_number: int</span>
+<span class="sd">    :ivar tf_idf_model: initial value: None | With :func:`TfIdfTracking.fit_tf_idf_model` becomes feature matrix of the seed</span>
+<span class="sd">    :ivar tf_idf_model: initial value: None | With :func:`TfIdfTracking.fit_tf_idf_model` becomes the index list of the seed feature matrix</span>
+<span class="sd">    :ivar slider: :class:`window-slider.Slider` | With :func:`window-slider.Slider.slide` returns next window_data</span>
+
+<span class="sd">  </span>
+<span class="sd">    </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">data</span><span class="p">,</span>
+        <span class="n">seed</span><span class="p">,</span>
+        <span class="n">error</span><span class="p">,</span>
+        <span class="n">distance_threshold</span><span class="p">,</span>
+        <span class="n">cluster_num</span><span class="p">,</span>
+        <span class="n">keyword_number</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Constructor method</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">error</span> <span class="o">=</span> <span class="n">error</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document_frequency</span> <span class="o">=</span> <span class="n">space_saving</span><span class="o">.</span><span class="n">SpaceSavingCounter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">error</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seed</span> <span class="o">=</span> <span class="n">seed</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">distance_threshold</span> <span class="o">=</span> <span class="n">distance_threshold</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">slider</span> <span class="o">=</span> <span class="n">Slider</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">error</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">slider</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">keyword_number</span> <span class="o">=</span> <span class="n">keyword_number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tf_idf_model</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cluster_num</span> <span class="o">=</span> <span class="n">cluster_num</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tf_idf_model_vocab</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="TfIdfTracking.process_window"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.process_window">[docs]</a>    <span class="k">def</span> <span class="nf">process_window</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">window_data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compares the distance between an item and the cluster centriodes of the seeds. If the distance is less than the predefined distance_threshold, it is clustered to the seeds.</span>
+<span class="sd">        </span>
+<span class="sd">        :param window_data: Window Data</span>
+<span class="sd">        :type window_data: array</span>
+<span class="sd">    </span>
+<span class="sd">    </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document_frequency</span><span class="o">.</span><span class="n">count_per_window</span><span class="p">(</span><span class="n">window_data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fit_tf_idf_model</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_seed</span><span class="p">(</span><span class="n">window_data</span><span class="p">)</span></div>
+    
+<div class="viewcode-block" id="TfIdfTracking.euklid_distance_of_docuement"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.euklid_distance_of_docuement">[docs]</a>    <span class="k">def</span> <span class="nf">euklid_distance_of_docuement</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vec_1</span><span class="p">,</span> <span class="n">document</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the euklidean distance between a vector(vec_1) and a document.</span>
+<span class="sd">        </span>
+<span class="sd">        :param vec_1: Vector</span>
+<span class="sd">        :type  vec_1: array</span>
+<span class="sd">        :param document: Text item </span>
+<span class="sd">        :type  document: object</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">feature_vec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_document_feature</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">feature_vec</span> <span class="o">!=</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">null_vec</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">feature_vec</span><span class="o">.</span><span class="n">get_shape</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">vec_1</span><span class="p">))</span>
+            <span class="n">vec_1</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">vec_1</span><span class="p">,</span> <span class="n">null_vec</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">distance</span><span class="o">.</span><span class="n">euclidean</span><span class="p">(</span><span class="n">vec_1</span><span class="p">,</span> <span class="n">feature_vec</span><span class="o">.</span><span class="n">toarray</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+<div class="viewcode-block" id="TfIdfTracking.add_document_to_seed"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.add_document_to_seed">[docs]</a>    <span class="k">def</span> <span class="nf">add_document_to_seed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">centroids</span><span class="p">,</span> <span class="n">document</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compares the distance between a list of centroids and a document.</span>
+<span class="sd">        </span>
+<span class="sd">        :param centroids: A list of centroids</span>
+<span class="sd">        :type  centriod: array</span>
+<span class="sd">        :param document: Text item </span>
+<span class="sd">        :type  document: object</span>
+<span class="sd">        :return: `True` if the distance of the document to at least one centroid is less than the distance_threshold, `False` otherwise</span>
+<span class="sd">        :rtype: bool</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">centroid</span> <span class="ow">in</span> <span class="n">centroids</span><span class="p">:</span>
+            <span class="n">distance_to_centroid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">euklid_distance_of_docuement</span><span class="p">(</span><span class="n">centroid</span><span class="p">,</span> <span class="n">document</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">distance_to_centroid</span> <span class="o">==</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">False</span>
+            <span class="k">elif</span> <span class="p">(</span>
+                <span class="n">distance_to_centroid</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">distance_threshold</span>
+                <span class="ow">and</span> <span class="n">distance_to_centroid</span> <span class="o">!=</span> <span class="kc">None</span>
+            <span class="p">):</span>
+                <span class="k">return</span> <span class="kc">True</span>
+
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">False</span></div>
+
+<div class="viewcode-block" id="TfIdfTracking.slide"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.slide">[docs]</a>    <span class="k">def</span> <span class="nf">slide</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Batches the data stream into the next window and process it. </span>
+<span class="sd">        </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">window_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">slider</span><span class="o">.</span><span class="n">slide</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">process_window</span><span class="p">(</span><span class="n">window_data</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="TfIdfTracking.fit_tf_idf_model"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.fit_tf_idf_model">[docs]</a>    <span class="k">def</span> <span class="nf">fit_tf_idf_model</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Converts the seeds to a sparse matrix :class:`scipy.sparse.csr_matrix` of feature vectors </span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># define custom method for tokenize--&gt; pre-process document</span>
+        <span class="n">vectorizer</span> <span class="o">=</span> <span class="n">CountVectorizer</span><span class="p">()</span>
+        <span class="n">corpus</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">seed</span><span class="p">))</span>
+        <span class="n">corpus</span> <span class="o">=</span> <span class="n">extract_data</span><span class="o">.</span><span class="n">preprocess_corpus</span><span class="p">(</span><span class="n">corpus</span><span class="p">)</span>
+        <span class="n">corpus_of_top_k_keywords</span><span class="p">,</span><span class="n">tfidfs</span><span class="o">=</span> <span class="n">tf_idf</span><span class="o">.</span><span class="n">get_tf_idf_from_list</span><span class="p">(</span>
+            <span class="n">corpus</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">document_frequency</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">keyword_number</span><span class="p">,</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">seed</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">x</span> <span class="o">=</span> <span class="n">vectorizer</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">corpus_of_top_k_keywords</span><span class="p">)</span>
+        <span class="n">document_term_matrix</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span>
+        <span class="n">feature_names</span> <span class="o">=</span> <span class="n">vectorizer</span><span class="o">.</span><span class="n">get_feature_names</span><span class="p">()</span>
+        <span class="n">matrix</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">document_term_vec_index</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">document_term_matrix</span><span class="p">)):</span>
+            <span class="n">feature_vector</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">document_counts</span><span class="o">=</span><span class="n">document_term_matrix</span><span class="p">[</span><span class="n">document_term_vec_index</span><span class="p">]</span>
+            <span class="n">document_tfidfs</span> <span class="o">=</span> <span class="n">tfidfs</span><span class="p">[</span><span class="n">document_term_vec_index</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">term_index</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">document_counts</span><span class="p">)):</span>
+                <span class="k">if</span><span class="p">(</span><span class="ow">not</span> <span class="n">feature_names</span><span class="p">[</span><span class="n">term_index</span><span class="p">]</span> <span class="ow">in</span> <span class="n">document_tfidfs</span><span class="p">):</span>
+                    <span class="n">feature_vector</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+                <span class="k">else</span> <span class="p">:</span>  
+                    <span class="n">feature_vector</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="n">document_tfidfs</span><span class="p">[</span><span class="n">feature_names</span><span class="p">[</span><span class="n">term_index</span><span class="p">]]</span>
+                    <span class="p">)</span>
+            <span class="n">matrix</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">feature_vector</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tf_idf_model</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">matrix</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tf_idf_model_vocab</span> <span class="o">=</span> <span class="n">feature_names</span></div>
+
+<div class="viewcode-block" id="TfIdfTracking.get_document_feature"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.get_document_feature">[docs]</a>    <span class="k">def</span> <span class="nf">get_document_feature</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">document_item</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the feature vector of a document.</span>
+<span class="sd">        </span>
+<span class="sd">        :param document_item: Text item</span>
+<span class="sd">        :type  centriod: object</span>
+<span class="sd">        :return: sparse feature vector</span>
+<span class="sd">        :rtype: :class:`scipy.sparse.csr_matrix`</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">vectorizer</span> <span class="o">=</span> <span class="n">CountVectorizer</span><span class="p">()</span>
+        <span class="n">document</span> <span class="o">=</span> <span class="n">document_item</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span>
+        <span class="n">cleaned_document</span> <span class="o">=</span> <span class="n">extract_data</span><span class="o">.</span><span class="n">preprocess_corpus</span><span class="p">([</span><span class="n">document</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">cleaned_document</span> <span class="o">==</span> <span class="p">[]:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">corpus_of_top_k_keywords</span><span class="p">,</span><span class="n">tfidfs</span> <span class="o">=</span> <span class="n">tf_idf</span><span class="o">.</span><span class="n">get_tf_idf_from_list</span><span class="p">(</span>
+                <span class="n">cleaned_document</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">document_frequency</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">keyword_number</span><span class="p">,</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">seed</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">vectorizer</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">corpus_of_top_k_keywords</span><span class="p">)</span>
+            <span class="n">feature_vocab_tf_idf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tf_idf_model_vocab</span>
+            <span class="n">feature_vocab_document</span> <span class="o">=</span> <span class="n">vectorizer</span><span class="o">.</span><span class="n">get_feature_names</span><span class="p">()</span>
+            <span class="n">feature_vector</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">feature_vocab_tf_idf</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">feature_vocab_document</span><span class="p">:</span>
+                    <span class="n">feature_vector</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                        <span class="n">tfidfs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="n">word</span><span class="p">]</span>
+                        <span class="p">)</span>
+                    <span class="n">feature_vocab_document</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">feature_vocab_document</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">word</span><span class="p">))</span>
+                    
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">feature_vector</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">none_index_word</span> <span class="ow">in</span> <span class="n">feature_vocab_document</span><span class="p">:</span>
+                <span class="n">feature_vector</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                        <span class="n">tfidfs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="n">none_index_word</span><span class="p">]</span>
+                        <span class="p">)</span>
+            <span class="k">return</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">feature_vector</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="TfIdfTracking.fit_k_means"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.fit_k_means">[docs]</a>    <span class="k">def</span> <span class="nf">fit_k_means</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fits the clustering model with the feature matrix of the seeds.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: K-means clustering class </span>
+<span class="sd">        :rtype: :class:`sklearn.cluster.KMeans`</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kmeans</span> <span class="o">=</span> <span class="n">KMeans</span><span class="p">(</span><span class="n">n_clusters</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cluster_num</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tf_idf_model</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">kmeans</span></div>
+<div class="viewcode-block" id="TfIdfTracking.update_seed"><a class="viewcode-back" href="../../sample.html#sample.tf_idf_tracking.TfIdfTracking.update_seed">[docs]</a>    <span class="k">def</span> <span class="nf">update_seed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">window_data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Iterates over the window and append a document to the seed if it is similar to the seeds.</span>
+<span class="sd">        </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">k_means</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fit_k_means</span><span class="p">()</span>
+        <span class="n">centroids</span> <span class="o">=</span> <span class="n">k_means</span><span class="o">.</span><span class="n">cluster_centers_</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">window_data</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">add_document_to_seed</span><span class="p">(</span><span class="n">centroids</span><span class="p">,</span> <span class="n">window_data</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">seed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">window_data</span><span class="p">[</span><span class="n">i</span><span class="p">])</span></div></div>
+</pre></div>
+
+           </div>
+           
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2021, Nebi Mucaj.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
